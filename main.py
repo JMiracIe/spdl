@@ -7,7 +7,7 @@ import json
 import sys
 from dataclasses import dataclass
 from mutagen.mp3 import MP3
-from mutagen.id3 import ID3, APIC, error, TRCK
+from mutagen.id3 import ID3, APIC, error, TRCK, TIT2, TALB, TPE1, TDRC
 
 if sys.version_info >= (3, 9):
     logging.basicConfig(
@@ -72,14 +72,18 @@ def  get_track_info(link, token):
     track_id = link.split("/")[-1].split("?")[0]
     response = requests.get(f"https://api.spotifydown.com/download/{track_id}?token={token}", headers=CUSTOM_HEADER)
     response = response.json()
-
+    if 'metadata' in response and 'title' in response['metadata']:
+        print("Track metadata:", response['metadata'])
+    else:
+        print("Error: Missing metadata in the response")
     return response
 
-def attach_cover_art(trackname, cover_art, outpath, is_high_quality, track_number=0):
+def attach_cover_art(trackname, cover_art, outpath, is_high_quality, track_number=0, title='', artist='', album='', year=''):
     trackname = re.sub(NAME_SANITIZE_REGEX, "_", trackname)
     filepath = os.path.join(outpath, f"{trackname}.mp3") if is_high_quality else os.path.join(outpath, "low_quality", f"{trackname}.mp3")
+    print(f"Trackname: {trackname}")
+    print(f"Title: {title}, Artist: {artist}, Album: {album}, Year: {year}")
     try:
-        # raise error("Testing")
         audio = MP3(filepath, ID3=ID3)
     except error as e:
         logging.error(f"Error loading MP3 file from {filepath} --> {e}")
@@ -88,12 +92,23 @@ def attach_cover_art(trackname, cover_art, outpath, is_high_quality, track_numbe
 
     if audio.tags is None:
         try:
-            audio.add_tags()
+            audio.tags = ID3()  # Si no tiene etiquetas, crea una nueva
         except error as e:
             logging.error(f"Error adding ID3 tags to {filepath} --> {e}")
             print(f"\tError adding ID3 tags --> {e}")
             return 
-        
+
+    # Agregar metadatos básicos
+    audio.tags.add(TIT2(encoding=3, text=title))   # Título
+    audio.tags.add(TPE1(encoding=3, text=artist))  # Artista
+    audio.tags.add(TALB(encoding=3, text=album))   # Álbum 
+    audio.tags.add(TDRC(encoding=3, text=year))    # Año
+    
+    # Agregar número de pista
+    if track_number > 0:
+        audio.tags.add(TRCK(encoding=3, text=str(track_number)))
+    
+    # Agregar cover art
     audio.tags.add(
         APIC(
             encoding=1,
@@ -102,12 +117,15 @@ def attach_cover_art(trackname, cover_art, outpath, is_high_quality, track_numbe
             desc=u'Cover',
             data=cover_art)
         )
-    # Add track number
-    # print(f"\t Adding track number: {track_number}")
-    if track_number > 0:
-        audio.tags.add(TRCK(encoding=3, text=str(track_number)))
     
-    audio.save(filepath, v2_version=3, v1=2)
+    try:
+        # Guardar con ID3v2
+        audio.save(filepath, v2_version=3)  # Eliminé v1=2 para evitar interferencias con ID3v1
+    except error as e:
+        logging.error(f"Error saving MP3 with tags --> {e}")
+        print(f"\tError saving MP3 with tags --> {e}")
+    print(f"Adding Title: {title}, Artist: {artist}, Album: {album}, Year: {year}")
+    audio.save(filepath, v2_version=3)
 
 def save_audio(trackname, link, outpath):
     trackname = re.sub(NAME_SANITIZE_REGEX, "_", trackname)
@@ -250,6 +268,10 @@ def download_track(track_link, outpath, trackname_convention, token, max_attempt
         return
     
     trackname = f"{resp['metadata']['title']} - {resp['metadata']['artists']}"
+    title = resp['metadata']['title']
+    artist = resp['metadata']['artists']
+    album = resp['metadata']['album']
+    year = resp['metadata']['releaseDate']
     if trackname_convention == 2:
         trackname = f"{resp['metadata']['artists']} - {resp['metadata']['title']}"
 
@@ -260,7 +282,7 @@ def download_track(track_link, outpath, trackname_convention, token, max_attempt
             is_high_quality = save_audio(trackname, resp['link'], outpath)
             if is_high_quality is not None:  # Check if download was successful
                 cover_art = requests.get(resp['metadata']['cover']).content
-                attach_cover_art(trackname, cover_art, outpath, is_high_quality)
+                attach_cover_art(trackname, cover_art, outpath, is_high_quality, title=title, artist=artist, album=album, year=year)
             break
         except Exception as e:
             logging.error(f"Attempt {attempt+1}/{max_attempts} - {trackname} --> {e}")
@@ -328,7 +350,9 @@ def download_playlist_tracks(playlist_link, outpath, create_folder, trackname_co
                     if not cover_url.startswith("http"):
                         cover_url = resp['metadata']['cover']
                     cover_art = requests.get(cover_url).content
-                    attach_cover_art(trackname, cover_art, outpath, is_high_quality, song_list_dict[trackname].track_number)
+                    attach_cover_art(trackname, cover_art, outpath, is_high_quality, song_list_dict[trackname].track_number, 
+                        title=resp['metadata']['title'], artist=resp['metadata']['artists'], 
+                        album=resp['metadata']['album'], year=resp['metadata']['releaseDate'])
                     break # This break is here because we want to break out of the loop of the track was downloaded successfully
             except Exception as e:
                 logging.error(f"Attempt {attempt+1}/{max_attempts} - {playlist_name}: {trackname} --> {e}")
