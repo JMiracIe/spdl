@@ -92,23 +92,20 @@ def attach_cover_art(trackname, cover_art, outpath, is_high_quality, track_numbe
 
     if audio.tags is None:
         try:
-            audio.tags = ID3()  # Si no tiene etiquetas, crea una nueva
+            audio.tags = ID3()
         except error as e:
             logging.error(f"Error adding ID3 tags to {filepath} --> {e}")
             print(f"\tError adding ID3 tags --> {e}")
             return 
 
-    # Agregar metadatos básicos
-    audio.tags.add(TIT2(encoding=3, text=title))   # Título
-    audio.tags.add(TPE1(encoding=3, text=artist))  # Artista
-    audio.tags.add(TALB(encoding=3, text=album))   # Álbum 
-    audio.tags.add(TDRC(encoding=3, text=year))    # Año
+    audio.tags.add(TIT2(encoding=3, text=title))   
+    audio.tags.add(TPE1(encoding=3, text=artist))  
+    audio.tags.add(TALB(encoding=3, text=album))    
+    audio.tags.add(TDRC(encoding=3, text=year))    
     
-    # Agregar número de pista
     if track_number > 0:
         audio.tags.add(TRCK(encoding=3, text=str(track_number)))
     
-    # Agregar cover art
     audio.tags.add(
         APIC(
             encoding=1,
@@ -119,8 +116,7 @@ def attach_cover_art(trackname, cover_art, outpath, is_high_quality, track_numbe
         )
     
     try:
-        # Guardar con ID3v2
-        audio.save(filepath, v2_version=3)  # Eliminé v1=2 para evitar interferencias con ID3v1
+        audio.save(filepath, v2_version=3)
     except error as e:
         logging.error(f"Error saving MP3 with tags --> {e}")
         print(f"\tError saving MP3 with tags --> {e}")
